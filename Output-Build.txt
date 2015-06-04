@@ -1,0 +1,21 @@
+﻿1>------ Build started: Project: ilolpex1, Configuration: Release x64 ------
+1>Build started 7/16/2014 11:11:13 PM.
+1>InitializeBuildStatus:
+1>  Creating "Release\ilolpex1\ilolpex1.unsuccessfulbuild" because "AlwaysCreate" was specified.
+1>ClCompile:
+1>  calub.cpp
+1>Link:
+1>  Generating code
+1>c:\dropbox\robust_uc_isone\codes\branchbound\calub.cpp(345): warning C4700: uninitialized local variable 'costuvw' used
+1>c:\dropbox\robust_uc_isone\codes\branchbound\calub.cpp(346): warning C4700: uninitialized local variable 'obj_val' used
+1>c:\dropbox\robust_uc_isone\codes\branchbound\branbond1.cpp(510): warning C4700: uninitialized local variable 'p' used
+1>  Finished generating code
+1>  ilolpex1.vcxproj -> C:\cplexproject\ilolpex1.exe
+1>FinalizeBuildStatus:
+1>  Deleting file "Release\ilolpex1\ilolpex1.unsuccessfulbuild".
+1>  Touching "Release\ilolpex1\ilolpex1.lastbuildstate".
+1>
+1>Build succeeded.
+1>
+1>Time Elapsed 00:00:16.41
+========== Build: 1 succeeded, 0 failed, 0 up-to-date, 0 skipped ==========

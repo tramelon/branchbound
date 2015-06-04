@@ -1,0 +1,468 @@
+/* 
+overall sub problems, not order switched.
+
+part of the ruc.cpp for sub problem subroutine. might also solved
+in the lazy constraint call 
+place after:free master model and algorithm  cplex_model1.end();
+before: orderswitched sub prblem init();
+  
+10/17/2014 
+
+*/
+
+
+
+int idd =1;
+if(idd==0) 
+{
+
+//$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ overall Sub problem $$$$$$$$$$$$$$$$$$$$$$$$$$//
+	NumMatrix gcstar(env,J);
+	for(IloInt j=0;j<J;j++){gcstar[j]=IloNumArray(env,T+1);}
+	for(IloInt j=0;j<J;j++)
+	  for(IloInt t = 0; t <= T; t++) 
+		  gcstar[j][t]=0; 
+	  IloInt itrc = 50;
+	ThreeDNumMatrix Zntstar(env,itrc);
+		 { for(IloInt it = 0; it < itrc; it++)
+			   Zntstar[it] = NumMatrix(env,N1);
+		  for(IloInt it = 0; it < itrc; it++)
+				for(IloInt n = 0; n < N1; n++)
+					Zntstar[it][n] = IloNumArray(env,T+1); }
+	for(IloInt it = 0; it < 2; it++)
+		for(IloInt n = 0; n < N1; n++)
+			for(IloInt t = 0; t <= T; t++) 
+				Zntstar[it][n][t] = 0;
+// ccg master problem variable
+	NumVarMatrix gc(env,J);
+	  for(IloInt j=0;j<J;j++){gc[j]=IloNumVarArray(env,T+1,0,IloInfinity);}
+	ThreeDVarMatrix pc(env,itrc);
+		  for(IloInt it = 0; it < itrc; it++)
+			  pc[it] = NumVarMatrix(env,L);
+		  for(IloInt it = 0; it < itrc; it++)
+				for(IloInt l = 0; l < L; l++)
+					pc[it][l] = IloNumVarArray(env,T+1, -IloInfinity, IloInfinity); 
+	ThreeDVarMatrix deltac(env,itrc);
+		  for(IloInt it = 0; it < itrc; it++)
+			  deltac[it] = NumVarMatrix(env,N1);
+		  for(IloInt it = 0; it < itrc; it++)
+				for(IloInt n = 0; n < N1; n++)
+					deltac[it][n] = IloNumVarArray(env,T+1, -maxdelta, maxdelta); 
+	ThreeDVarMatrix dc(env,itrc);
+		  for(IloInt it = 0; it < itrc; it++)
+			  dc[it] = NumVarMatrix(env,N1);
+		  for(IloInt it = 0; it < itrc; it++)
+				for(IloInt n = 0; n < N1; n++)
+					dc[it][n] = IloNumVarArray(env,T+1, 0, IloInfinity); 
+	ThreeDVarMatrix sc(env,itrc);
+		  for(IloInt it = 0; it < itrc; it++)
+			  sc[it] = NumVarMatrix(env,N1);
+		  for(IloInt it = 0; it < itrc; it++)
+				for(IloInt n = 0; n < N1; n++)
+					sc[it][n] = IloNumVarArray(env,T+1, 0, IloInfinity);
+	IloNum lb_sub = -IloInfinity;
+	IloNum ub_sub =  IloInfinity;
+	IloNum ingap = 1;	
+	IloNumVar eta(env,-IloInfinity,IloInfinity); 
+	IloModel maspc(env);
+	maspc.add(IloMinimize(env,eta));
+//** ccg master cconstraints**//
+for(IloInt j=0; j<J; j++){ 
+	maspc.add(gc[j][0]==0);
+	}
+for(IloInt j=0; j<J; j++)
+	for(IloInt t=1; t<=T; t++){
+		maspc.add(gc[j][t-1]-gc[j][t] <= RD[j]*ucstar[j][t]+SD[j]*wcstar[j][t]); //Ramping down----traditional 
+		} 
+for(IloInt j=0; j<J; j++)
+	for(IloInt t=1; t<=T; t++){
+		maspc.add(gc[j][t]-gc[j][t-1] <= RU[j]*ucstar[j][t-1]+SU[j]*vcstar[j][t]); //Ramping Up----traditional
+		}
+for(IloInt j=0; j<J; j++)
+	for(IloInt t= 1; t <= T; t++){
+			maspc.add(gc[j][t]>=ucstar[j][t]*Gj[j]); //......Generation lower bound limit
+			maspc.add(gc[j][t]<=ucstar[j][t]*Gjb[j]);
+			} 
+//*********************************//
+itrc=0;
+ingap=1;
+time_t begin,end; 
+begin = clock();
+	while(ingap>=in_tlrn)
+	 {
+	 itrc++;	
+//......Transmission Network Constraints.
+	for(IloInt l = 0; l < L; l++)
+		 for(IloInt t = 1; t <= T; t++)  {
+				pc[itrc][l][t].setBounds(-Pl[l],Pl[l]);
+				maspc.add(pc[itrc][l][t]>=-Pl[l]);
+				maspc.add(pc[itrc][l][t]<=Pl[l]);
+		 }
+//......For L lines, DC power flow. 
+  {for(IloInt t= 1; t <= T; t++)
+	 for(IloInt l=0; l<L;l++)
+	 {   
+		 IloInt m,r;
+		 m=line[l][0]; //origin bus
+		 r=line[l][1]; //destination bus
+		 maspc.add(pc[itrc][l][t]*x[l]==100*(deltac[itrc][m][t]-deltac[itrc][r][t]));
+	 }}
+  {for(IloInt t= 1; t <= T; t++)
+	 for(IloInt n=0; n< N1;n++)
+	 {   
+		 maspc.add(dc[itrc][n][t]<=dnt[n][t]+Zntstar[itrc][n][t]*dpnt[n][t]);
+		 maspc.add(deltac[itrc][n][t]<=maxdelta);
+		 maspc.add(deltac[itrc][n][t]>=-maxdelta);
+	 }} cout<<"good here"<<endl;
+//......load Balancing constraints, for each bus.
+   for(IloInt t= 1; t <= T; t++)
+	for(IloInt n= 0; n < N1; n++)  
+		{IloExpr exp60c(env);
+		 IloExpr exp70c(env);
+		 IloExpr exp80c(env);
+		{for(IloInt i= 0; i < J; i++)
+		{
+			if(Gloc[i]==n){
+				exp60c+=gc[i][t];
+				}
+		}}
+	   {for(IloInt l = 0; l < L; l++)
+		{
+				if(line[l][1]==n)  // D(l)
+					exp70c+=pc[itrc][l][t];
+				else if(line[l][0]==n) // O(l)
+					exp80c+=pc[itrc][l][t];
+	   }}
+		maspc.add(exp60c+exp70c-exp80c+dc[itrc][n][t]-sc[itrc][n][t] >= dnt[n][t]+Zntstar[itrc][n][t]*dpnt[n][t]); //load shed allowed
+		maspc.add(sc[itrc][n][t] <= exp60c);
+		maspc.add(dc[itrc][n][t] <= dnt[n][t]+Zntstar[itrc][n][t]*dpnt[n][t]);
+		exp60c.end();
+		exp70c.end();
+		exp80c.end();
+	}//end n
+   cout<<"good here"<<endl;
+// generation greater than demand
+   for(IloInt t=1; t<=T; t++) {
+		IloExpr expsr1(env);
+		for(IloInt j=0; j<J; j++){
+			expsr1+=gc[j][t];
+			}
+//		maspc.add(expsr1 >= Dt[t]);
+		expsr1.end();
+		}
+IloExpr submasobjc(env);
+   for(IloInt j=0; j<J; j++)
+		for(IloInt t=1; t<=T; t++){
+			submasobjc+=cj[j]*gc[j][t];
+		}
+   for(IloInt t=1; t<=T; t++)
+	   for(IloInt n= 0; n < N1; n++){  
+		   submasobjc+=ldpen*dc[itrc][n][t];
+		   submasobjc-=sellprice*sc[itrc][n][t];
+		   }
+maspc.add(eta>=submasobjc);
+submasobjc.end();
+
+IloCplex ccg_mas(maspc);
+//	ccg_mas.exportModel("C:/Dropbox/Robust_UC_ISONE/data/118bus/iit/results/uc_ccg_mas.lp") ;
+	ccg_mas.setParam(IloCplex::MIPSearch,0);  //1, traditional branch & cut
+	ccg_mas.setParam(IloCplex::EpGap, inmastol);
+	if (!ccg_mas.solve()) {
+		env.error() << "Failed to solve model" << endl;
+		throw(-1);
+		}
+	cout<<"ccg mas obj: "<<ccg_mas.getObjValue()<<endl;
+	cout<<"obj: "<<costuvw+ccg_mas.getObjValue()<<endl;
+	cout<<" diff: "<<obj_val-costuvw- ccg_mas.getObjValue()<<endl;	
+//update
+	for(IloInt t = 0; t <= T; t++)
+		for(IloInt j= 0; j < J; j++){
+			gcstar[j][t]=ccg_mas.getValue(gc[j][t]);
+//		ccgresults<<""<<gcstar[j][t]<<endl;
+			}
+	lb_sub = ccg_mas.getObjValue(); // best feasible for LB
+	ingap = (ub_sub -lb_sub)/ub_sub ;
+	end=clock();
+	runningtime=double(end-begin)/CLOCKS_PER_SEC;
+	ccgresults<<"iteration: "<<itrc<<" ccg_lb: "<<lb_sub<<" ccg_ub: "<<ub_sub<<" gap: "<<ingap<<" time:"<<runningtime<<endl;
+	ccg_mas.end();
+	if(ingap<in_tlrn) break;
+
+//***************************CCG sub problem*******************************//
+	BoolVarMatrix zc(env, N1);	 //pi5lt
+	  for(IloInt n=0;n<N1;n++){zc[n]=IloBoolVarArray(env,T+1);}
+	NumVarMatrix pi5c(env, L);	 //pi5lt
+	  for(IloInt l=0;l<L;l++){pi5c[l]=IloNumVarArray(env,T+1,-IloInfinity,IloInfinity);}
+	NumVarMatrix pi6c(env, N1);	 //p6nt
+	  for(IloInt n=0;n<N1;n++){pi6c[n]=IloNumVarArray(env,T+1,0,IloInfinity);}
+	NumVarMatrix pi6ac(env, N1);	 //p6nt
+	  for(IloInt n=0;n<N1;n++){pi6ac[n]=IloNumVarArray(env,T+1,0,IloInfinity);}	
+	NumVarMatrix pi7c(env, L);	 //pi7lt
+	  for(IloInt l=0;l<L;l++){pi7c[l]=IloNumVarArray(env,T+1,0,IloInfinity);}					  
+	NumVarMatrix pi8c(env, L);	 //pi8lt
+	  for(IloInt l=0;l<L;l++){pi8c[l]=IloNumVarArray(env,T+1,0,IloInfinity);}
+	NumVarMatrix pi9c(env, N1);	 //p9nt
+	  for(IloInt n=0;n<N1;n++){pi9c[n]=IloNumVarArray(env,T+1,0,IloInfinity);}
+	NumVarMatrix pi10c(env, N1);	 //p10nt
+	  for(IloInt n=0;n<N1;n++){pi10c[n]=IloNumVarArray(env,T+1,0,IloInfinity);}
+	NumVarMatrix pi11c(env, N1);	 //p11nt
+	  for(IloInt n=0;n<N1;n++){pi11c[n]=IloNumVarArray(env,T+1,0,IloInfinity);}	
+	NumVarMatrix pi12c(env, N1);	 //p11nt
+	  for(IloInt n=0;n<N1;n++){pi12c[n]=IloNumVarArray(env,T+1,0,IloInfinity);}
+	NumVarMatrix beta1c(env, N1);	 //linearization
+	  for(IloInt n=0;n<N1;n++){beta1c[n]=IloNumVarArray(env,T+1,0,IloInfinity);}
+	NumVarMatrix beta2c(env, N1);	 //linearization
+	  for(IloInt n=0;n<N1;n++){beta2c[n]=IloNumVarArray(env,T+1,0,IloInfinity);}
+	NumVarMatrix beta3c(env, N1);	 //linearization
+	  for(IloInt n=0;n<N1;n++){beta3c[n]=IloNumVarArray(env,T+1,0,IloInfinity);}
+/* separate sub problem over time */
+IloNumArray	  ccgsubobjv(env,T+1);
+{for(IloInt t = 1; t <=T; t++)
+	{
+	IloModel subpc(env);
+	Md=ldpen; 
+	{for(IloInt n = 0; n < N1; n++)	//dnt
+	for(IloInt it=1; it<=itrc; it++){
+			subpc.add(beta1c[n][t] <= pi6c[n][t]);
+//			subpc.add(beta2c[n][t] <= pi6ac[n][t]);
+			subpc.add(beta3c[n][t] <= pi11c[n][t]);
+			subpc.add(beta1c[n][t] <= Md*zc[n][t]);
+//			subpc.add(beta2c[n][t] <= Md*zc[n][t]);
+			subpc.add(beta3c[n][t] <= Md*zc[n][t]);
+			subpc.add(beta1c[n][t] >= Md*zc[n][t]+pi6c[n][t]-Md);
+//			subpc.add(beta2c[n][t] >= Md*zc[n][t]+pi6ac[n][t]-Md);
+			subpc.add(beta3c[n][t] >= Md*zc[n][t]+pi11c[n][t]-Md);
+			}}	
+IloExpr subobjc(env); //&&&& obj function
+	{for(IloInt l = 0; l < L; l++){
+		subobjc += (-Pl[l]*(pi7c[l][t]+pi8c[l][t]));
+			}}
+	{for(IloInt n = 0; n < N1; n++){
+		subobjc += -maxdelta*(pi9c[n][t]+pi10c[n][t]);
+//		subobjc +=  dnt[n][t]*(pi6c[n][t]-pi6ac[n][t]-pi11c[n][t]);
+//		subobjc +=  dpnt[n][t]*(beta1c[n][t]-beta2c[n][t]-beta3c[n][t]);
+		subobjc +=  dnt[n][t]*(pi6c[n][t]-pi11c[n][t]);
+		subobjc +=  dpnt[n][t]*(beta1c[n][t]-beta3c[n][t]);
+			}}
+		IloNum locgc=0;
+	{for(IloInt n = 0; n < N1; n++){
+			locgc = 0 ;
+			for(IloInt i= 0; i < J; i++){
+				if(Gloc[i]==n)
+					locgc+=gcstar[i][t];}
+//			subobjc += -locgc*(pi6c[n][t]-pi6ac[n][t]+pi12c[n][t]);
+			subobjc += -locgc*(pi6c[n][t]+pi12c[n][t]);
+			}} 
+	IloNum totalgstar = 0;
+	{for(IloInt j= 0; j < J; j++){
+			totalgstar += cj[j]*gcstar[j][t]; 
+			}}
+	subpc.add(IloMaximize(env,subobjc+totalgstar));
+	subobjc.end();
+//--------- dual constraints
+		IloInt lm;
+		IloInt lr;
+	{for(IloInt l = 0; l < L; l++) // plt
+		{
+			lm=line[l][0];
+			lr=line[l][1];
+//			subpc.add((x[l]/100)*pi5c[l][t]-pi6c[lm][t]+pi6ac[lm][t]
+//			+pi6c[lr][t]-pi6ac[lr][t]+pi7c[l][t]-pi8c[l][t] == 0);
+			subpc.add((x[l]/100)*pi5c[l][t]-pi6c[lm][t]+pi6c[lr][t]+pi7c[l][t]-pi8c[l][t] == 0);
+			}}
+	{for(IloInt n = 0; n < N1; n++)	// delta nt
+		{
+		IloExpr isexpr1(env);
+		IloExpr isexpr2(env);
+		 for(IloInt l = 0; l < L; l++){
+			if(line[l][1]==n)  // D(l)
+			{
+					isexpr1+= pi5c[l][t];
+			}//end if
+			if(line[l][0]==n)  // O(l)
+			{
+					isexpr2+= -pi5c[l][t];
+			} //end if
+		}//end for l
+		subpc.add(isexpr2+isexpr1+pi9c[n][t]-pi10c[n][t]==0);
+		isexpr1.end();
+		isexpr2.end();
+		}}
+	{for(IloInt n = 0; n < N1; n++)	//dnt
+		{ //subpc.add(pi6c[n][t]-pi6ac[n][t]-pi11c[n][t]<=ldpen);
+			subpc.add(pi6c[n][t]-pi11c[n][t]<=ldpen);}}
+
+	{for(IloInt n = 0; n < N1; n++)	//snt
+		{//subpc.add(-pi6c[n][t]+pi6ac[n][t]-pi12c[n][t]<=-sellprice);
+		 subpc.add(-pi6c[n][t]-pi12c[n][t]<=-sellprice);}}	
+
+	IloExpr bugc(env);
+	   {for(IloInt n = 0; n < N1; n++){
+			bugc += zc[n][t];} 
+		subpc.add(bugc<=uncdbug);} // budget on demand uncertainty
+		bugc.end();
+
+	IloCplex ccg_subpc(subpc);
+//	ccg_subpc.exportModel("C:/Dropbox/Robust_UC_ISONE/data/118bus/iit/results/uc_ccgsub.lp") ;
+	ccg_subpc.setParam(IloCplex::MIPSearch,0);  //1, traditional branch & cut
+	ccg_subpc.setParam(IloCplex::EpGap, 0.005);
+	if (!ccg_subpc.solve()) {
+		env.error() << "Failed to solve model" << endl;
+		throw(-1);
+		}
+	//update
+		{for(IloInt n= 0; n < N1; n++){
+			Zntstar[itrc+1][n][t]=ccg_subpc.getValue(zc[n][t]);
+		}}
+	ccgsubobjv[t] = ccg_subpc.getObjValue();//taking 2% gap into consideration
+	cout<<ccg_subpc.getObjValue()<<" "<<ccg_subpc.getCutoff()<<endl;
+	ccg_subpc.end();
+	subpc.end();
+}} // END t, decomposed
+
+
+double ub_sub_current = 0;
+{for(IloInt t = 1; t < T+1; t++){
+		ub_sub_current += ccgsubobjv[t];
+	}}
+ub_sub = IloMin(ub_sub,ub_sub_current); // best feasible for UB
+	ingap = (ub_sub -lb_sub )/ub_sub ;
+	cout<<"ccg sub obj: "<<ub_sub<<endl;
+	cout<<"ccg LB: "<<lb_sub<<endl;
+	cout<<"obj: "<<costuvw+ub_sub<<endl;
+	cout<<"ingap: "<<ingap<<endl;
+	end=clock();
+	runningtime=double(end-begin)/CLOCKS_PER_SEC;
+	ccgresults<<"iteration: "<<itrc<<" ccg_lb: "<<lb_sub<<" ccg_ub: "<<ub_sub<<" gap: "<<ingap<<" time: "<<runningtime<<endl;
+ }//end while
+ IloNum objtgc = 0;
+ {for(IloInt t = 1; t < T+1; t++)
+  for(IloInt j = 0; j < J; j++){
+	  objtgc+=cj[j]*gcstar[j][t];
+	  }}
+  ccgresults<<"total gencost: "<<objtgc<<endl;
+  ccgresults<<"load shed: "<<(lb_sub-objtgc)/ldpen<<endl;
+  maspc.end();
+  end=clock();
+  runningtime=double(end-begin)/CLOCKS_PER_SEC;
+  ccgresults<<"running time is "<<runningtime<<endl;
+
+//************************* estimate Lower Bound **************//
+IloNum estlb = IloInfinity;
+IloNum temUB = IloInfinity;
+while(itrc>0)
+	{
+	itrc--;
+	
+	IloModel lbest(env);
+//** ccg master cconstraints**//
+for(IloInt j=0; j<J; j++){ 
+	lbest.add(gc[j][0]==0);
+	}
+for(IloInt j=0; j<J; j++)
+	for(IloInt t=1; t<=T; t++){
+		lbest.add(gc[j][t-1]-gc[j][t] <= RD[j]*ucstar[j][t]+SD[j]*wcstar[j][t]); //Ramping down----traditional 
+		} 
+for(IloInt j=0; j<J; j++)
+	for(IloInt t=1; t<=T; t++){
+		lbest.add(gc[j][t]-gc[j][t-1] <= RU[j]*ucstar[j][t-1]+SU[j]*vcstar[j][t]); //Ramping Up----traditional
+		}
+for(IloInt j=0; j<J; j++)
+	for(IloInt t= 1; t <= T; t++){
+			lbest.add(gc[j][t]>=ucstar[j][t]*Gj[j]); //......Generation lower bound limit
+			lbest.add(gc[j][t]<=ucstar[j][t]*Gjb[j]);
+			} 
+//......Transmission Network Constraints.
+	for(IloInt l = 0; l < L; l++)
+		 for(IloInt t = 1; t <= T; t++)  {
+				pc[0][l][t].setBounds(-Pl[l],Pl[l]);
+				lbest.add(pc[0][l][t]>=-Pl[l]);
+				lbest.add(pc[0][l][t]<=Pl[l]);
+		 }
+//......For L lines, DC power flow. 
+  {for(IloInt t= 1; t <= T; t++)
+	 for(IloInt l=0; l<L;l++)
+	 {   
+		 IloInt m,r;
+		 m=line[l][0]; //origin bus
+		 r=line[l][1]; //destination bus
+		 lbest.add(pc[0][l][t]*x[l]==100*(deltac[0][m][t]-deltac[0][r][t]));
+	 }}
+  {for(IloInt t= 1; t <= T; t++)
+	 for(IloInt n=0; n< N1;n++)
+	 {   
+		 lbest.add(dc[0][n][t]<=dnt[n][t]+Zntstar[itrc][n][t]*dpnt[n][t]);
+		 lbest.add(deltac[0][n][t]<=maxdelta);
+		 lbest.add(deltac[0][n][t]>=-maxdelta);
+	 }} cout<<"good here"<<endl;
+//......load Balancing constraints, for each bus.
+   for(IloInt t= 1; t <= T; t++)
+	for(IloInt n= 0; n < N1; n++)  
+		{IloExpr exp60c(env);
+		 IloExpr exp70c(env);
+		 IloExpr exp80c(env);
+		{for(IloInt i= 0; i < J; i++)
+		{
+			if(Gloc[i]==n){
+				exp60c+=gc[i][t];
+				}
+		}}
+	   {for(IloInt l = 0; l < L; l++)
+		{
+				if(line[l][1]==n)  // D(l)
+					exp70c+=pc[0][l][t];
+				else if(line[l][0]==n) // O(l)
+					exp80c+=pc[0][l][t];
+	   }}
+		lbest.add(exp60c+exp70c-exp80c+dc[0][n][t]-sc[0][n][t] >= dnt[n][t]+Zntstar[itrc+2][n][t]*dpnt[n][t]); //load shed allowed
+		lbest.add(sc[0][n][t] <= exp60c);
+		lbest.add(dc[0][n][t] <= dnt[n][t]+Zntstar[itrc+2][n][t]*dpnt[n][t]);
+		exp60c.end();
+		exp70c.end();
+		exp80c.end();
+	}//end n
+   cout<<"good here"<<endl;
+// generation greater than demand
+IloExpr submasobjc(env);
+   for(IloInt j=0; j<J; j++)
+		for(IloInt t=1; t<=T; t++){
+			submasobjc+=cj[j]*gc[j][t];
+		}
+   for(IloInt t=1; t<=T; t++)
+	   for(IloInt n= 0; n < N1; n++){  
+		   submasobjc+=ldpen*dc[0][n][t];
+		   submasobjc-=sellprice*sc[0][n][t];
+		   }
+lbest.add(IloMinimize(env,submasobjc));
+submasobjc.end();
+
+IloCplex cplexlb(lbest);
+//	cplexlb.exportModel("C:/Dropbox/Robust_UC_ISONE/data/118bus/iit/results/uc_ccg_mas.lp") ;
+	cplexlb.setParam(IloCplex::MIPSearch,0);  //1, traditional branch & cut
+	cplexlb.setParam(IloCplex::EpGap, insubtol);
+	if (!cplexlb.solve()) {
+		env.error() << "Failed to solve model" << endl;
+		throw(-1);
+		}
+	cout<<"subp LB estimation: "<<cplexlb.getObjValue()<<endl;
+	ccgresults<<"subp LB estimation: "<<cplexlb.getObjValue()<<endl;
+	cout<<"obj: "<<costuvw+cplexlb.getObjValue()<<endl;
+	ccgresults<<"obj: "<<costuvw+cplexlb.getObjValue()<<endl;
+	cout<<" diff: "<<obj_val-costuvw- cplexlb.getObjValue()<<endl;	
+//update, pick the zstar with lowest LB
+if(cplexlb.getObjValue()>estlb){
+//	temUB = costuvw+cplexlb.getObjValue();
+	for(IloInt t=1; t<=T; t++)
+		for(IloInt n= 0; n < N1; n++){  
+			Zoutstar[itrc_out][n][t]=Zntstar[itrc+2][n][t];
+		}
+	}
+cplexlb.end();
+lbest.end();
+
+} // end innermost while
+outUB = IloMin(costuvw+lb_sub,outUB);
+outgap = (outUB-outLB)/outUB;
+ccgresults<<"---outUB: "<<outUB<<" outGap: "<<outgap <<endl;
+}// end, if idd ==0
+
